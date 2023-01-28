@@ -143,4 +143,8 @@ impl Environment for DummyEnvironment {
     fn gathered_a_qc(&self, _round: u64, _block: Self::Hash, qc: Self::QC) {
         self.with_chain(|chain| chain.save_qc(qc)).unwrap();
     }
+
+    fn parent_key_block(&self, block: Self::Hash) -> Option<(Self::Number, Self::Hash)> {
+        self.with_chain(|chain| chain.parent_key_block(block))
+    }
 }

@@ -70,7 +70,11 @@ pub trait Environment {
     /// Get the key block we want to vote on.
     fn propose(&self, round: u64, block: Self::Hash) -> Self::BestChain;
 
+    /// Get the qc for a block.
     fn gathered_a_qc(&self, round: u64, block: Self::Hash, qc: Self::QC);
+
+    /// Get the parent key block.
+    fn parent_key_block(&self, block: Self::Hash) -> Option<(Self::Number, Self::Hash)>;
 
     /// Finalize a block.
     fn finalize_block(
