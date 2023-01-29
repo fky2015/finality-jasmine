@@ -144,7 +144,17 @@ impl Environment for DummyEnvironment {
         self.with_chain(|chain| chain.save_qc(qc)).unwrap();
     }
 
-    fn parent_key_block(&self, block: Self::Hash) -> Option<(Self::Number, Self::Hash)> {
+    fn parent_key_block(
+        &self,
+        block: Self::Hash,
+    ) -> Option<(Self::Number, Self::Hash, (Self::Number, Self::Hash))> {
         self.with_chain(|chain| chain.parent_key_block(block))
+    }
+
+    fn get_block(
+        &self,
+        block: Self::Hash,
+    ) -> Option<(Self::Number, Self::Hash, (Self::Number, Self::Hash))> {
+        self.with_chain(|chain| chain.get_block(&block))
     }
 }

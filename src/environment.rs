@@ -71,10 +71,20 @@ pub trait Environment {
     fn propose(&self, round: u64, block: Self::Hash) -> Self::BestChain;
 
     /// Get the qc for a block.
+    /// TODO: Call this in voter.rs
     fn gathered_a_qc(&self, round: u64, block: Self::Hash, qc: Self::QC);
 
+    // TODO: refactor interface
+    fn get_block(
+        &self,
+        block: Self::Hash,
+    ) -> Option<(Self::Number, Self::Hash, (Self::Number, Self::Hash))>;
+
     /// Get the parent key block.
-    fn parent_key_block(&self, block: Self::Hash) -> Option<(Self::Number, Self::Hash)>;
+    fn parent_key_block(
+        &self,
+        block: Self::Hash,
+    ) -> Option<(Self::Number, Self::Hash, (Self::Number, Self::Hash))>;
 
     /// Finalize a block.
     fn finalize_block(

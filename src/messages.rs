@@ -98,7 +98,7 @@ pub struct FinalizedCommit<N, D, Sig, Id> {
     /// The target block's number.
     pub target_number: N,
     /// Precommits for target block or any block after it that justify this commit.
-    pub qcs: Vec<QC<N, D, Sig, Id>>,
+    pub qcs: [QC<N, D, Sig, Id>; 3],
 }
 
 /// A commit message for a block in PBFT.
@@ -139,7 +139,7 @@ pub struct CompactCommit<D, N, S, Id> {
     /// The target block's number.
     pub target_number: N,
     /// Precommits for target block or any block after it that justify this commit.
-    pub qcs: Vec<QC<N, D, S, Id>>,
+    pub qcs: [QC<N, D, S, Id>; 3],
 }
 
 /// Convert from [`FinalizedCommit`] to [`CompactCommit`].

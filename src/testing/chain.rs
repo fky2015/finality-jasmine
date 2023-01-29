@@ -202,15 +202,27 @@ impl DummyChain {
         false
     }
 
-    pub fn parent_key_block(&self, block: Hash) -> Option<(BlockNumber, Hash)> {
+    pub fn parent_key_block(
+        &self,
+        block: Hash,
+    ) -> Option<(BlockNumber, Hash, (BlockNumber, Hash))> {
         let mut hash = block;
         loop {
             let block = self.inner.get(&hash).unwrap();
             if block.key_block {
-                return Some((block.number, hash));
+                return Some((block.number, hash, (block.qc.height, block.qc.hash.clone())));
             }
             hash = block.parent.clone();
         }
+    }
+
+    pub fn get_block(&self, hash: &Hash) -> Option<(BlockNumber, Hash, (BlockNumber, Hash))> {
+        let block = self.inner.get(hash).unwrap();
+        Some((
+            block.number,
+            hash.clone(),
+            (block.qc.height, block.qc.hash.clone()),
+        ))
     }
 }
 

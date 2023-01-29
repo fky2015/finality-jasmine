@@ -18,19 +18,21 @@ use crate::{
 use self::report::VoterStateT;
 
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub enum CurrentState {
-    Propose,
+pub enum CurrentState<N, D, Sig, Id> {
+    Voter,
+    Leader,
+    LeaderWithQC(QC<N, D, Sig, Id>),
 }
 
-impl Default for CurrentState {
+impl<N, D, Sig, Id> Default for CurrentState<N, D, Sig, Id> {
     fn default() -> Self {
-        CurrentState::Propose
+        CurrentState::Voter
     }
 }
 
-impl CurrentState {
+impl<N, D, Sig, Id> CurrentState<N, D, Sig, Id> {
     pub fn new() -> Self {
-        CurrentState::Propose
+        CurrentState::Voter
     }
 }
 
@@ -48,7 +50,7 @@ pub mod report {
 
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct RoundState<Hash, Id: Eq + std::hash::Hash> {
-        pub state: CurrentState,
+        // pub state: CurrentState<>,
         pub total_voters: usize,
         pub threshold: usize,
         pub proposal_hash: Option<Hash>,
@@ -114,7 +116,6 @@ impl<E: Environment> Voter<E> {
                 res = voting_round.run() => {
                     match res {
                         Ok(f_commit) => {
-                        // TODO: fix this.
                             // Send commit to global_out;
                          if let Some(f_commit) = f_commit {
                             self.env.finalize_block(
@@ -125,10 +126,8 @@ impl<E: Environment> Voter<E> {
                             ).unwrap();
                             }
                         }
-                        Err(provotes) => {
-                        // TODO: fix this.
-                            // save round data to global state.
-                            // self.global.lock().append_round(round, provotes)
+                        Err(e) => {
+                        warn!("error: {:?}", e)
                         }
                     }
                 },
@@ -183,6 +182,94 @@ impl<E: Environment> Round<E> {
         }
     }
 
+    fn is_extend_relationship(
+        &self,
+        ancestor: &(E::Number, E::Hash),
+        descendant: &E::Hash,
+    ) -> bool {
+        let mut parent = self.env.parent_key_block(descendant.clone()).unwrap();
+        while parent.0 >= ancestor.0 {
+            if parent.1 == ancestor.1 {
+                return true;
+            }
+            parent = self.env.parent_key_block(parent.1.clone()).unwrap();
+        }
+        false
+    }
+
+    fn is_parent_relationship(&self, ancestor: &E::Hash, descendant: &E::Hash) -> bool {
+        self.env.parent_key_block(descendant.clone()).unwrap().1 == *ancestor
+    }
+
+    fn get_parent_block(
+        &self,
+        hash: &E::Hash,
+    ) -> Option<Propose<E::Number, E::Hash, E::Signature, E::Id>> {
+        let parent = self.env.parent_key_block(hash.clone()).unwrap();
+        let parent_hash = parent.1;
+        let parent_number = parent.0;
+        let qc = QC::from_target(parent.2);
+        Some(Propose {
+            // mock round
+            round: 0,
+            target_hash: parent_hash,
+            target_height: parent_number,
+            qc,
+        })
+    }
+
+    fn get_block(
+        &self,
+        hash: &E::Hash,
+    ) -> Option<Propose<E::Number, E::Hash, E::Signature, E::Id>> {
+        let block = self.env.get_block(hash.clone()).unwrap();
+        let qc = QC::from_target(block.2);
+
+        Some(Propose {
+            round: 0,
+            target_hash: block.1,
+            target_height: block.0,
+            qc,
+        })
+    }
+
+    async fn process_proposal(
+        &mut self,
+        propose: Propose<E::Number, E::Hash, E::Signature, E::Id>,
+    ) -> Option<FinalizedCommit<E::Number, E::Hash, E::Signature, E::Id>> {
+        let global = self.round_state.lock().global.clone();
+        let qc = propose.qc.clone();
+        let locked_qc = global.lock().locked_qc.clone();
+
+        // 2. update the generic_qc if needed.
+        if qc.height > global.lock().generic_qc.height {
+            global.lock().generic_qc = qc.clone();
+        }
+
+        // 3. update the lock_qc if needed.
+        let block_x = self.get_block(&qc.hash).unwrap();
+        let larger_than_lock_qc = block_x.qc.height > locked_qc.height;
+        if larger_than_lock_qc {
+            global.lock().locked_qc = block_x.qc.clone();
+        }
+
+        // 4. finalize block if needed.
+        let block_y = self.get_parent_block(&block_x.qc.hash).unwrap();
+        let block_z = self.get_parent_block(&block_y.qc.hash).unwrap();
+        let is_parent_x_y = self.is_parent_relationship(&block_x.qc.hash, &block_y.qc.hash);
+        let is_parent_y_z = self.is_parent_relationship(&block_y.qc.hash, &block_z.qc.hash);
+
+        if is_parent_x_y && is_parent_y_z {
+            Some(FinalizedCommit {
+                target_hash: block_z.target_hash,
+                target_number: block_z.target_height,
+                qcs: [block_y.qc, block_x.qc, qc],
+            })
+        } else {
+            None
+        }
+    }
+
     async fn new_vote(
         &self,
         propose: Propose<E::Number, E::Hash, E::Signature, E::Id>,
@@ -192,6 +279,27 @@ impl<E: Environment> Round<E> {
             target_height: propose.target_height,
             round: propose.round,
         }
+    }
+
+    async fn try_generate_vote(
+        &self,
+        propose: Propose<E::Number, E::Hash, E::Signature, E::Id>,
+    ) -> Option<Vote<E::Number, E::Hash>> {
+        // Check safety and liveness rule.
+        let global = self.round_state.lock().global.clone();
+        let qc = propose.qc.clone();
+        let locked_qc = global.lock().locked_qc.clone();
+        let safety_rule =
+            self.is_extend_relationship(&(locked_qc.height, locked_qc.hash), &qc.hash);
+        let liveness_rule = qc.height >= locked_qc.height;
+
+        if !safety_rule && !liveness_rule {
+            return None;
+        }
+
+        let vote = self.new_vote(propose).await;
+
+        Some(vote)
     }
 
     async fn run(
@@ -232,23 +340,30 @@ impl<E: Environment> Round<E> {
         });
 
         let ret = if let Ok(proposal) = fu.await {
-            // TODO: try to finalize with proposal's qc.
+            // Update current state if we are the next leader.
+            if self.round_state.lock().is_next_proposer() {
+                global.lock().current_state = CurrentState::Leader;
+            } else {
+                global.lock().current_state = CurrentState::Voter;
+            }
 
             // If we have a proposal, send a vote.
-            let vote = self.new_vote(proposal).await;
-            let msg = Message::Vote(vote);
-            self.outgoing.send(msg).await.unwrap();
+            let vote = self.try_generate_vote(proposal.clone()).await;
 
-            None
+            if let Some(vote) = vote {
+                let msg = Message::Vote(vote);
+                self.outgoing.send(msg).await.unwrap();
+            }
+
+            self.process_proposal(proposal).await
         } else {
             warn!(target: "afj", "No proposal");
             return Err(());
         };
 
         // 2. If we are next proposer, wait for enough votes
-        let voter_set = self.round_state.lock().global.lock().voters.clone();
-        let next_proposer = voter_set.get_proposer(round + 1);
-        if next_proposer == self.local_id {
+        let next_proposer = self.round_state.lock().is_next_proposer();
+        if next_proposer {
             // Wait for enough votes.
             let timeout = tokio::time::sleep(Duration::from_millis(1000));
             tokio::pin!(timeout);
@@ -263,7 +378,13 @@ impl<E: Environment> Round<E> {
                 }
             });
 
-            // TODO: now update qc in global state.
+            if let Ok(qc) = fu.await {
+                // Now update qc in global state.
+                global.lock().current_state = CurrentState::LeaderWithQC(qc);
+            } else {
+                warn!(target: "afj", "No QC");
+                return Err(());
+            }
         }
 
         Ok(ret)
@@ -518,9 +639,11 @@ pub struct GlobalState<E: Environment> {
     local_id: E::Id,
     height: E::Number,
     round: u64,
-    generic_qc: QC<E::Number, E::Hash, E::Signature, E::Id>,
     voters: VoterSet<E::Id>,
-    current_state: CurrentState,
+    current_state: CurrentState<E::Number, E::Hash, E::Signature, E::Id>,
+    generic_qc: QC<E::Number, E::Hash, E::Signature, E::Id>,
+    locked_qc: QC<E::Number, E::Hash, E::Signature, E::Id>,
+    finalized_qc: QC<E::Number, E::Hash, E::Signature, E::Id>,
 }
 
 impl<E: Environment> GlobalState<E> {
@@ -529,12 +652,20 @@ impl<E: Environment> GlobalState<E> {
         voters: VoterSet<E::Id>,
         generic_qc: QC<E::Number, E::Hash, E::Signature, E::Id>,
     ) -> Self {
+        // When we are the leader, we should init with CurrentState::LeaderWithQC
+        let current_state = if voters.get_proposer(num::zero()) == local_id {
+            CurrentState::LeaderWithQC(generic_qc.clone())
+        } else {
+            CurrentState::default()
+        };
         GlobalState {
             local_id,
             height: num::zero(),
             round: num::zero(),
             voters,
-            current_state: CurrentState::Propose,
+            current_state,
+            locked_qc: generic_qc.clone(),
+            finalized_qc: generic_qc.clone(),
             generic_qc,
         }
     }
@@ -604,9 +735,6 @@ impl<E: Environment> RoundState<E> {
                         && v.target_hash == proposal.target_hash
                         && v.target_height == proposal.target_height
                 });
-
-                // TODO: after get qc from proposal, we should check if we can finalize the
-                // commit.
             }
             Message::Vote(vote) => {
                 if let Some(proposal) = &self.proposal {
@@ -726,7 +854,7 @@ impl<E: Environment> VoterStateT<E::Hash, E::Id> for SharedVoterState<E> {
             best_round: (
                 round,
                 report::RoundState {
-                    state: current_state,
+                    // state: current_state,
                     total_voters: voters.len().get(),
                     threshold: voters.threshold,
                     proposal_hash: round_state.proposal.as_ref().map(|p| p.target_hash.clone()),
