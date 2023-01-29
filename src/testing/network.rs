@@ -3,8 +3,7 @@ use crate::{
     Error,
 };
 
-use tokio::sync::Notify;
-use tracing::instrument;
+use tracing_attributes::instrument;
 
 use super::*;
 use core::{
@@ -33,7 +32,7 @@ struct BroadcastNetwork<M> {
     history: Vec<M>,
     /// A validator hook is a hook to decide whether a message should be broadcast.
     /// By default, all messages are broadcast.
-    validator_hook: Option<Box<dyn Fn(&M) -> () + Send + Sync>>,
+    validator_hook: Option<Box<dyn Fn(&M) + Send + Sync>>,
     /// A routing table that decide whether a message should be sent to a peer.
     rule: Arc<Mutex<RoutingRule>>,
 }
@@ -51,7 +50,7 @@ impl<M: Clone + std::fmt::Debug> BroadcastNetwork<M> {
         }
     }
 
-    fn register_validator_hook(&mut self, hook: Box<dyn Fn(&M) -> () + Send + Sync>) {
+    fn register_validator_hook(&mut self, hook: Box<dyn Fn(&M) + Send + Sync>) {
         self.validator_hook = Some(hook);
     }
 
@@ -64,13 +63,13 @@ impl<M: Clone + std::fmt::Debug> BroadcastNetwork<M> {
         impl Stream<Item = Result<M, Error>>,
         impl Sink<N, Error = Error>,
     ) {
-        tracing::trace!("BroadcastNetwork::add_node");
+        // tracing::trace!("BroadcastNetwork::add_node");
         // Channel from Network to the new node.
         let (tx, rx) = mpsc::unbounded();
         let messages_out = self
             .raw_sender
             .clone()
-            .sink_map_err(|e| panic!("Error sending message: {:?}", e))
+            .sink_map_err(|e| panic!("Error sending message: {e:?}"))
             .with(move |message| std::future::ready(Ok((id, f(message)))));
 
         // get history to the node.
@@ -81,7 +80,7 @@ impl<M: Clone + std::fmt::Debug> BroadcastNetwork<M> {
         // tracing::trace!("add_node: tx.isclosed? {}", tx.is_closed());
         self.senders.push((id, tx));
 
-        tracing::trace!("BroadcastNetwork::add_node end.");
+        // tracing::trace!("BroadcastNetwork::add_node end.");
         (rx.map(Ok), messages_out)
     }
 
@@ -99,7 +98,7 @@ impl<M: Clone + std::fmt::Debug> BroadcastNetwork<M> {
                         hook(&msg);
                     }
 
-                    tracing::trace!("    msg {:?}", msg);
+                    // tracing::trace!("    msg {:?}", msg);
                     // Broadcast to all peers including itself.
                     for (to, sender) in &self.senders {
                         if self.rule.lock().valid_route(from, to) {
@@ -204,14 +203,14 @@ impl RoutingRule {
     pub fn valid_route(&mut self, from: &Id, to: &Id) -> bool {
         match (self.state_tracker.get(from), self.state_tracker.get(to)) {
             (Some(_), None) => {
-                self.state_tracker.insert(to.clone(), VoterState::new());
+                self.state_tracker.insert(*to, VoterState::new());
             }
             (None, Some(_)) => {
-                self.state_tracker.insert(from.clone(), VoterState::new());
+                self.state_tracker.insert(*from, VoterState::new());
             }
             (None, None) => {
-                self.state_tracker.insert(from.clone(), VoterState::new());
-                self.state_tracker.insert(to.clone(), VoterState::new());
+                self.state_tracker.insert(*from, VoterState::new());
+                self.state_tracker.insert(*to, VoterState::new());
             }
             _ => {}
         };
@@ -258,7 +257,7 @@ pub struct NetworkRouting {
 impl NetworkRouting {
     pub fn register_global_validator_hook(
         &mut self,
-        hook: Box<dyn Fn(&GlobalMessageIn<Hash, BlockNumber, Signature, Id>) -> () + Sync + Send>,
+        hook: Box<dyn Fn(&GlobalMessageIn<Hash, BlockNumber, Signature, Id>) + Sync + Send>,
     ) {
         self.global.lock().register_validator_hook(hook);
     }
@@ -267,27 +266,27 @@ impl NetworkRouting {
 impl Future for NetworkRouting {
     type Output = ();
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.notify.lock().insert(cx.waker().clone());
 
-        tracing::trace!("NetworkRouting::poll start.");
+        // tracing::trace!("NetworkRouting::poll start.");
         let mut rounds = self.rounds.lock();
         // Retain all round that not finished
         rounds.retain(|view, round_network| {
-            tracing::trace!("  view: {view} poll");
+            // tracing::trace!("  view: {view} poll");
             let ret = match round_network.route(cx) {
                 Poll::Ready(()) => {
-                    tracing::trace!(
-                        "    view: {view}, round_network.route: finished with history: {}",
-                        round_network.history.len()
-                    );
+                    // tracing::trace!(
+                    //     "    view: {view}, round_network.route: finished with history: {}",
+                    //     round_network.history.len()
+                    // );
 
                     false
                 }
                 Poll::Pending => true,
             };
 
-            tracing::trace!("  view: {view} poll end");
+            // tracing::trace!("  view: {view} poll end");
 
             ret
         });
@@ -295,7 +294,7 @@ impl Future for NetworkRouting {
         let mut global = self.global.lock();
         let _ = global.route(cx);
 
-        tracing::trace!("NetworkRouting::poll end.");
+        // tracing::trace!("NetworkRouting::poll end.");
 
         // Nerver stop.
         Poll::Pending
@@ -348,11 +347,9 @@ impl Network {
         tracing::trace!("make_round_comms end");
 
         // Notify the network routing task.
-        self.notify
-            .as_ref()
-            .lock()
-            .as_ref()
-            .map(|waker| waker.wake_by_ref());
+        if let Some(waker) = self.notify.as_ref().lock().as_ref() {
+            waker.wake_by_ref()
+        }
 
         round_comm
     }
@@ -374,9 +371,8 @@ impl Network {
 
             GlobalMessageOut::Empty => GlobalMessageIn::Empty,
         };
-        let global_comm = global.add_node(id, f);
 
-        global_comm
+        global.add_node(id, f)
     }
 
     /// Send a message to all nodes.

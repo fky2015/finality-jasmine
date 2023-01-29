@@ -5,9 +5,14 @@ use futures::{channel::mpsc::UnboundedReceiver, Sink};
 use futures::{Future, Stream};
 use parking_lot::Mutex;
 use std::sync::Arc;
+use tracing::trace;
+
+use tracing_attributes::instrument;
 
 use crate::environment::{Environment, RoundData, VoterData};
-use crate::messages::{FinalizedCommit, GlobalMessageIn, GlobalMessageOut, Message, SignedMessage};
+use crate::messages::{
+    self, FinalizedCommit, GlobalMessageIn, GlobalMessageOut, Message, SignedMessage,
+};
 use crate::testing::network::VoterState;
 use crate::{Error, VoterSet};
 
@@ -38,7 +43,7 @@ impl DummyEnvironment {
         F: FnOnce(&mut DummyChain) -> U,
     {
         let mut chain = self.chain.lock();
-        f(&mut *chain)
+        f(&mut chain)
     }
 
     pub fn finalized_stream(&self) -> UnboundedReceiver<(Hash, BlockNumber)> {
@@ -89,10 +94,9 @@ impl Environment for DummyEnvironment {
                 > + Send,
         >,
     >;
-    type QC = chain::QC;
 
     fn init_voter(&self) -> VoterData<Self::Id> {
-        let globals = self.network.make_global_comms(self.local_id);
+        let _globals = self.network.make_global_comms(self.local_id);
         VoterData {
             local_id: self.local_id,
         }
@@ -116,11 +120,18 @@ impl Environment for DummyEnvironment {
         number: Self::Number,
         _f_commit: FinalizedCommit<Self::Number, Self::Hash, Self::Signature, Self::Id>,
     ) -> Result<(), Self::Error> {
-        tracing::trace!("{:?} finalize_block", self.local_id);
+        tracing::trace!(
+            "voter {:?} finalize_block: {:?}",
+            self.local_id,
+            (number, hash.to_owned())
+        );
+        trace!("test 0 ");
         self.chain.lock().finalize_block(hash.to_owned());
+        trace!("test 1 ");
         self.listeners
             .lock()
             .retain(|s| s.unbounded_send((hash.to_owned(), number)).is_ok());
+        trace!("test 2 ");
 
         // Update Network RoutingRule's state.
         self.network.rule.lock().update_state(
@@ -140,7 +151,15 @@ impl Environment for DummyEnvironment {
         )))
     }
 
-    fn gathered_a_qc(&self, _round: u64, _block: Self::Hash, qc: Self::QC) {
+    #[instrument(skip(self), level = "trace")]
+    fn gathered_a_qc(
+        &self,
+        _round: u64,
+        _block: Self::Hash,
+        qc: crate::messages::QC<Self::Number, Self::Hash, Self::Signature, Self::Id>,
+    ) {
+        tracing::trace!("voter {:?} gathered_a_qc: {:?}", self.local_id, qc);
+        let qc = qc.into();
         self.with_chain(|chain| chain.save_qc(qc)).unwrap();
     }
 

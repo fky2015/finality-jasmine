@@ -3,6 +3,7 @@ use parity_scale_codec::{Decode, Encode};
 #[cfg(feature = "derive-codec")]
 use scale_info::TypeInfo;
 
+use crate::environment::QCT;
 #[cfg(not(feature = "std"))]
 use crate::std::vec::Vec;
 
@@ -22,6 +23,20 @@ impl<N, D, Sig, Id> QC<N, D, Sig, Id> {
             hash: target.1,
             signatures: Vec::new(),
         }
+    }
+}
+
+impl<N: Clone, D: Clone, Sig: Clone, Id: Clone> QCT<N, D, Sig, Id> for QC<N, D, Sig, Id> {
+    fn get_height(&self) -> N {
+        self.height.clone()
+    }
+
+    fn get_hash(&self) -> D {
+        self.hash.clone()
+    }
+
+    fn get_signatures(&self) -> Vec<(Sig, Id)> {
+        self.signatures.clone()
     }
 }
 

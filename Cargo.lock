@@ -110,6 +110,7 @@ dependencies = [
  "scale-info",
  "tokio",
  "tracing",
+ "tracing-attributes",
  "tracing-subscriber",
 ]
 

@@ -20,6 +20,7 @@ parity-scale-codec = { version = "3", default-features = false, optional = true,
 scale-info = { version = "2", default-features = false, optional = true, features = [
     "derive",
 ] }
+tracing-attributes = "0.1.23"
 
 [dev-dependencies]
 tokio = { version = "1.20.1" , features = ["full"]}
@@ -28,22 +29,11 @@ tracing = {version = "0.1"}
 
 [features]
 default = ["std"]
-std = [
-    "parity-scale-codec/std",
-    "num/std",
-    "parking_lot",
-    "log",
-    "futures-timer",
-    "futures/executor",
-    "tracing/std",
-    "scale-info/std",
-]
+std = ["parity-scale-codec/std", "num/std", "parking_lot", "log", "futures-timer", "futures/executor", "tracing/std", "scale-info/std"]
 
 derive-codec = ["parity-scale-codec", "scale-info"]
 test-helpers = ["fuzz-helpers", "std", "deadlock_detection"]
-deadlock_detection = [
-  "parking_lot/deadlock_detection"
-]
+deadlock_detection = ["parking_lot/deadlock_detection"]
 fuzz-helpers = []
 
 [profile.test]

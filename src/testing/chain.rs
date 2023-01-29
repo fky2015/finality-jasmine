@@ -1,5 +1,8 @@
 use crate::std::collections::BTreeMap;
 
+use tracing::{info, trace, warn};
+use tracing_attributes::instrument;
+
 use super::*;
 
 #[derive(Debug, Default, Clone)]
@@ -7,6 +10,22 @@ pub struct QC {
     height: u64,
     hash: Hash,
     signatures: BTreeMap<Id, Signature>,
+}
+
+impl From<crate::messages::QC<u64, String, u64, u64>> for QC {
+    fn from(value: crate::messages::QC<u64, String, u64, u64>) -> Self {
+        let mut signatures = BTreeMap::new();
+
+        value.signatures.into_iter().for_each(|(id, signature)| {
+            signatures.insert(id, signature);
+        });
+
+        Self {
+            height: value.height,
+            hash: value.hash,
+            signatures,
+        }
+    }
 }
 
 impl QC {
@@ -63,12 +82,18 @@ pub struct DummyChain {
 impl DummyChain {
     pub fn new() -> Self {
         let mut inner = BTreeMap::new();
+
+        let qc = QC {
+            hash: GENESIS_HASH.to_string(),
+            ..Default::default()
+        };
+
         inner.insert(
             GENESIS_HASH.to_string(),
             Block {
-                qc: QC::default(),
+                qc,
                 number: 0,
-                parent: NULL_HASH.to_string(),
+                parent: GENESIS_HASH.to_string(),
                 key_block: true,
                 hash: GENESIS_HASH.to_string(),
             },
@@ -89,7 +114,7 @@ impl DummyChain {
 
         let key_block_interval = 3;
         for i in 0..n {
-            let hash = format!("block-{}", i);
+            let hash = format!("block-{i}");
             let block = if i % key_block_interval == 0 {
                 let qc = QC::default();
                 Block::new_key_block(&parent_block, hash, i as u64 + 1, qc)
@@ -100,6 +125,9 @@ impl DummyChain {
             self.push_block(block.clone());
             parent_block = block;
         }
+
+        // First block.
+        self.save_qc(self.get_genesis().qc.clone()).unwrap();
     }
 
     /// Get the genesis block.
@@ -158,6 +186,7 @@ impl DummyChain {
         Ok((block.number, hash, (block.qc.height, block.qc.hash.clone())))
     }
 
+    #[instrument(skip(self), level = "trace")]
     pub(crate) fn save_qc(&mut self, qc: QC) -> Result<(), ()> {
         // find the next key block
         let (_, mut hash) = self.latest_voted.clone();
@@ -173,17 +202,16 @@ impl DummyChain {
         // update the block
         let mut block = self.inner.get_mut(&hash).unwrap();
         block.qc = qc;
+        self.latest_voted = (block.number, hash);
 
         Ok(())
     }
 
     /// Finalized a block.
     pub fn finalize_block(&mut self, block: Hash) -> bool {
-        #[cfg(feature = "std")]
-        log::trace!("finalize_block: {:?}", block);
+        trace!("finalize_block: {:?}", block);
         if let Some(b) = self.inner.get(&block) {
-            #[cfg(feature = "std")]
-            log::trace!("finalize block: {:?}", b);
+            trace!("finalize block: {:?}", b);
             if self
                 .inner
                 .get(&b.parent)
@@ -191,10 +219,10 @@ impl DummyChain {
                 .unwrap_or(false)
             {
                 self.finalized = (b.number, block);
-                #[cfg(feature = "std")]
-                log::info!("new finalized = {:?}", self.finalized);
+                info!("new finalized = {:?}", self.finalized);
                 return true;
             } else {
+                warn!("block {} is not a descendent of {}", b.number, b.parent);
                 panic!("block {} is not a descendent of {}", b.number, b.parent);
             }
         }
@@ -202,17 +230,18 @@ impl DummyChain {
         false
     }
 
-    pub fn parent_key_block(
-        &self,
-        block: Hash,
-    ) -> Option<(BlockNumber, Hash, (BlockNumber, Hash))> {
-        let mut hash = block;
+    pub fn parent_key_block(&self, hash: Hash) -> Option<(BlockNumber, Hash, (BlockNumber, Hash))> {
+        let mut hash = self.inner.get(&hash).unwrap().parent.clone();
         loop {
             let block = self.inner.get(&hash).unwrap();
             if block.key_block {
                 return Some((block.number, hash, (block.qc.height, block.qc.hash.clone())));
             }
-            hash = block.parent.clone();
+            let new_hash = block.parent.clone();
+            if new_hash == hash {
+                return None;
+            }
+            hash = new_hash
         }
     }
 
@@ -231,6 +260,30 @@ mod test {
     use super::*;
 
     #[test]
+    fn next_to_be_voted_will_paces() {
+        let mut chain = DummyChain::new();
+        chain.generate_init_blocks(10);
+
+        let (number, hash, gen) = chain.next_to_be_voted().unwrap();
+        assert_eq!(hash, "block-0");
+        assert_eq!(number, 1);
+        assert_eq!(gen, (0, GENESIS_HASH.to_owned()));
+
+        chain
+            .save_qc(QC {
+                height: 1,
+                hash: "block-0".to_owned(),
+                signatures: BTreeMap::new(),
+            })
+            .unwrap();
+
+        let (number, hash, qc) = chain.next_to_be_voted().unwrap();
+        assert_eq!(hash, "block-3");
+        assert_eq!(number, 4);
+        assert_eq!(qc, (1, "block-0".to_owned()));
+    }
+
+    #[test]
     fn next_to_be_finalized_must_be_a_key_block() {
         let mut chain = DummyChain::new();
         chain.generate_init_blocks(10);
@@ -244,5 +297,17 @@ mod test {
         let (number, hash) = chain.next_to_be_finalized().unwrap();
         assert_eq!(hash, "block-3");
         assert_eq!(number, 4);
+    }
+
+    #[test]
+    fn parent_key_block() {
+        let mut chain = DummyChain::new();
+        chain.generate_init_blocks(10);
+
+        assert_eq!(chain.parent_key_block("block-0".to_owned()).unwrap().0, 0);
+        assert_eq!(chain.parent_key_block("block-3".to_owned()).unwrap().0, 1);
+        assert_eq!(chain.parent_key_block("block-6".to_owned()).unwrap().0, 4);
+        assert_eq!(chain.parent_key_block("block-5".to_owned()).unwrap().0, 4);
+        assert_eq!(chain.parent_key_block("block-9".to_owned()).unwrap().0, 7);
     }
 }

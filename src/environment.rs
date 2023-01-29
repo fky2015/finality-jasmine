@@ -1,10 +1,15 @@
 use futures::{Future, Sink, Stream};
-use tracing::Value;
 
 use crate::{
     messages::{FinalizedCommit, GlobalMessageIn, GlobalMessageOut, Message, SignedMessage},
     BlockNumberOps, Error,
 };
+
+pub trait QCT<N, D, Sig, Id> {
+    fn get_height(&self) -> N;
+    fn get_hash(&self) -> D;
+    fn get_signatures(&self) -> Vec<(Sig, Id)>;
+}
 
 /// Necessary environment for a voter.
 ///
@@ -58,8 +63,6 @@ pub trait Environment {
             Error = Self::Error,
         > + Unpin;
 
-    type QC: Clone + core::fmt::Debug;
-
     /// Get Voter data.
     fn init_voter(&self) -> VoterData<Self::Id>;
 
@@ -72,7 +75,12 @@ pub trait Environment {
 
     /// Get the qc for a block.
     /// TODO: Call this in voter.rs
-    fn gathered_a_qc(&self, round: u64, block: Self::Hash, qc: Self::QC);
+    fn gathered_a_qc(
+        &self,
+        round: u64,
+        block: Self::Hash,
+        qc: crate::messages::QC<Self::Number, Self::Hash, Self::Signature, Self::Id>,
+    );
 
     // TODO: refactor interface
     fn get_block(

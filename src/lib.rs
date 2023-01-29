@@ -1,4 +1,5 @@
 // #![warn(missing_docs)]
+#![feature(associated_type_defaults)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use core::num::NonZeroUsize;
@@ -57,7 +58,7 @@ where
 {
 }
 
-use crate::std::{collections::BTreeMap, vec::Vec};
+use crate::std::{vec::Vec};
 
 /// Error for Jasmine
 #[derive(Clone, PartialEq)]
@@ -67,9 +68,7 @@ pub enum Error {}
 #[cfg(feature = "std")]
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match *self {
-            _ => write!(f, "not implemented"),
-        }
+        write!(f, "not implemented")
     }
 }
 
@@ -108,7 +107,7 @@ pub mod persistent {
         /// Genesis state.
         pub fn genesis(genesis: (N, H)) -> Self {
             State {
-                finalized: Some(genesis.clone()),
+                finalized: Some(genesis),
                 completable: true,
             }
         }
