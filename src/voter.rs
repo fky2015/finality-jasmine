@@ -48,7 +48,6 @@ pub mod report {
         pub total_voters: usize,
         pub threshold: usize,
         pub proposal_hash: Option<D>,
-        pub phantom: core::marker::PhantomData<Id>,
     }
 
     #[derive(Clone, Debug)]
@@ -712,7 +711,6 @@ impl<E: Environment> VoterStateT<E::Number, E::Hash, E::Signature, E::Id> for Sh
                     total_voters: voters.len().get(),
                     threshold: voters.threshold,
                     proposal_hash: round_state.proposal.as_ref().map(|p| p.target_hash.clone()),
-                    phantom: core::marker::PhantomData,
                 },
             ),
         }

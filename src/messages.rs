@@ -236,22 +236,22 @@ pub enum GlobalMessageIn<D, N, S, Id> {
         CompactCommit<D, N, S, Id>,
         Callback<CommitProcessingOutcome>,
     ),
-    /// A catch up message.
+    // A catch up message.
     // CatchUp(CatchUp<N, D, S, Id>, Callback<CatchUpProcessingOutcome>),
-    /// multicast <view + 1, latest stable checkpoint, C: a set of pairs with the sequence number
-    /// A workaround for test network.
-    Empty,
+    // multicast <view + 1, latest stable checkpoint, C: a set of pairs with the sequence number
+    // A workaround for test network.
+    // Empty,
 }
 
-#[cfg(feature = "std")]
-impl<D, N, S, Id> PartialEq for GlobalMessageIn<D, N, S, Id> {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Empty, Self::Empty) => true,
-            _ => false,
-        }
-    }
-}
+// #[cfg(feature = "std")]
+// impl<D, N, S, Id> PartialEq for GlobalMessageIn<D, N, S, Id> {
+//     fn eq(&self, other: &Self) -> bool {
+//         match (self, other) {
+//             (Self::Empty, Self::Empty) => true,
+//             _ => false,
+//         }
+//     }
+// }
 
 #[cfg(feature = "std")]
 impl<D, N, S, Id> Unpin for GlobalMessageIn<D, N, S, Id> {}
@@ -267,9 +267,9 @@ pub enum GlobalMessageOut<D, N, S, Id> {
         FinalizedCommit<N, D, S, Id>,
         // Callback<CommitProcessingOutcome>
     ),
-    /// multicast <view + 1, latest stable checkpoint, C: a set of pairs with the sequence number
-    /// and digest of each checkpoint, P, Q, i>
-    Empty,
+    // multicast <view + 1, latest stable checkpoint, C: a set of pairs with the sequence number
+    // and digest of each checkpoint, P, Q, i>
+    // Empty,
 }
 
 /// Callback used to pass information about the outcome of importing a given

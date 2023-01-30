@@ -367,8 +367,6 @@ impl Network {
             GlobalMessageOut::Commit(view, commit) => {
                 GlobalMessageIn::Commit(view, commit.into(), Callback::Blank)
             }
-
-            GlobalMessageOut::Empty => GlobalMessageIn::Empty,
         };
 
         global.add_node(id, f)
