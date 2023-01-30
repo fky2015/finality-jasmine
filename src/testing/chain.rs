@@ -88,6 +88,7 @@ impl DummyChain {
             ..Default::default()
         };
 
+
         inner.insert(
             GENESIS_HASH.to_string(),
             Block {
@@ -127,7 +128,8 @@ impl DummyChain {
         }
 
         // First block.
-        self.save_qc(self.get_genesis().qc.clone()).unwrap();
+        self.save_qc(GENESIS_HASH.to_owned(), self.get_genesis().qc.clone())
+            .unwrap();
     }
 
     /// Get the genesis block.
@@ -187,22 +189,25 @@ impl DummyChain {
     }
 
     #[instrument(skip(self), level = "trace")]
-    pub(crate) fn save_qc(&mut self, qc: QC) -> Result<(), ()> {
-        // find the next key block
-        let (_, mut hash) = self.latest_voted.clone();
-
-        loop {
-            hash = self.children.get(&hash).unwrap().get(0).unwrap().to_owned();
-            let block = self.inner.get(&hash).ok_or(())?;
-            if block.key_block {
-                break;
-            }
+    pub(crate) fn save_qc(&mut self, hash: Hash, qc: QC) -> Result<(), ()> {
+        // find the next key block of `hash`
+        let mut child = self.children.get(&hash).unwrap().get(0).unwrap().to_owned();
+        while !self.inner.get(&child).unwrap().key_block {
+            child = self
+                .children
+                .get(&child)
+                .unwrap()
+                .get(0)
+                .unwrap()
+                .to_owned();
         }
 
         // update the block
-        let mut block = self.inner.get_mut(&hash).unwrap();
+        let mut block = self.inner.get_mut(&child).unwrap();
         block.qc = qc;
-        self.latest_voted = (block.number, hash);
+        if self.latest_voted.0 < block.number {
+            self.latest_voted = (block.number, block.hash.to_owned());
+        }
 
         Ok(())
     }
@@ -270,11 +275,14 @@ mod test {
         assert_eq!(gen, (0, GENESIS_HASH.to_owned()));
 
         chain
-            .save_qc(QC {
-                height: 1,
-                hash: "block-0".to_owned(),
-                signatures: BTreeMap::new(),
-            })
+            .save_qc(
+                "block-0".to_owned(),
+                QC {
+                    height: 1,
+                    hash: "block-0".to_owned(),
+                    signatures: BTreeMap::new(),
+                },
+            )
             .unwrap();
 
         let (number, hash, qc) = chain.next_to_be_voted().unwrap();

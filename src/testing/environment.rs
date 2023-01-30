@@ -125,13 +125,10 @@ impl Environment for DummyEnvironment {
             self.local_id,
             (number, hash.to_owned())
         );
-        trace!("test 0 ");
         self.chain.lock().finalize_block(hash.to_owned());
-        trace!("test 1 ");
         self.listeners
             .lock()
             .retain(|s| s.unbounded_send((hash.to_owned(), number)).is_ok());
-        trace!("test 2 ");
 
         // Update Network RoutingRule's state.
         self.network.rule.lock().update_state(
@@ -155,12 +152,13 @@ impl Environment for DummyEnvironment {
     fn gathered_a_qc(
         &self,
         _round: u64,
-        _block: Self::Hash,
+        _hash: Self::Hash,
         qc: crate::messages::QC<Self::Number, Self::Hash, Self::Signature, Self::Id>,
     ) {
         tracing::trace!("voter {:?} gathered_a_qc: {:?}", self.local_id, qc);
+        let hash = qc.hash.to_owned();
         let qc = qc.into();
-        self.with_chain(|chain| chain.save_qc(qc)).unwrap();
+        self.with_chain(|chain| chain.save_qc(hash, qc)).unwrap();
     }
 
     fn parent_key_block(

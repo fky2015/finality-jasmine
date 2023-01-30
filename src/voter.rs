@@ -8,7 +8,7 @@ use tracing_attributes::instrument;
 
 use futures::{FutureExt, SinkExt, StreamExt};
 use parking_lot::Mutex;
-use tracing::{info, trace, warn};
+use tracing::{info, trace, warn, Value};
 
 use crate::{
     environment::{Environment, RoundData, VoterData},
@@ -61,6 +61,7 @@ pub mod report {
 }
 
 pub struct Voter<E: Environment> {
+    id: E::Id,
     env: Arc<E>,
     global: Arc<Mutex<GlobalState<E>>>,
     global_in: E::GlobalIn,
@@ -68,7 +69,10 @@ pub struct Voter<E: Environment> {
     best: Arc<Mutex<InnerVoterState<E>>>,
 }
 
-impl<E: Environment> Voter<E> {
+impl<E: Environment> Voter<E>
+where
+    E::Id: Value,
+{
     pub fn new(
         env: Arc<E>,
         global_in: E::GlobalIn,
@@ -83,6 +87,7 @@ impl<E: Environment> Voter<E> {
             QC::from_target(finalized_target),
         )));
         Voter {
+            id: local_id.clone(),
             env,
             global_in,
             global_out,
@@ -94,7 +99,7 @@ impl<E: Environment> Voter<E> {
     pub async fn start(&mut self) {
         loop {
             let round = self.global.lock().round;
-            info!("start voter in round {round}.");
+            info!(id = self.id, "start voter in round {round}.");
 
             let voting_round = Round::new(self.env.clone(), round, self.global.clone());
 
@@ -122,7 +127,7 @@ impl<E: Environment> Voter<E> {
                             }
                         }
                         Err(e) => {
-                        warn!("error: {:?}", e)
+                        warn!(id = self.id, "error: {:?}", e)
                         }
                     }
                 },
@@ -141,7 +146,10 @@ pub struct Round<E: Environment> {
     round_state: Arc<Mutex<RoundState<E>>>,
 }
 
-impl<E: Environment> Round<E> {
+impl<E: Environment> Round<E>
+where
+    E::Id: Value,
+{
     fn new(env: Arc<E>, round: u64, global: Arc<Mutex<GlobalState<E>>>) -> Self {
         let RoundData {
             local_id,
@@ -254,6 +262,9 @@ impl<E: Environment> Round<E> {
             global.lock().generic_qc = qc.clone();
         }
 
+        self.env
+            .gathered_a_qc(propose.round, propose.target_hash, qc.to_owned());
+
         // 3. update the lock_qc if needed.
         let block_x = self.get_block(&qc.hash).unwrap();
         let larger_than_lock_qc = block_x.qc.height > locked_qc.height;
@@ -306,6 +317,16 @@ impl<E: Environment> Round<E> {
         }
     }
 
+    fn next_leader_round(&self, mut round: u64) -> u64 {
+        let voters = self.round_state.lock().global.lock().voters.clone();
+        let cur_leader = voters.get_proposer(round);
+        while voters.get_proposer(round) == cur_leader {
+            round += 1
+        }
+        trace!("next_leader_round: {}", round);
+        round
+    }
+
     async fn new_vote(
         &self,
         propose: Propose<E::Number, E::Hash, E::Signature, E::Id>,
@@ -315,6 +336,14 @@ impl<E: Environment> Round<E> {
             target_height: propose.target_height,
             round: propose.round,
         }
+    }
+
+    async fn save_latest_vote(&self, vote: Vote<E::Number, E::Hash>) {
+        self.round_state.lock().global.lock().latest_vote = Some(vote);
+    }
+
+    async fn get_latest_vote(&self) -> Option<Vote<E::Number, E::Hash>> {
+        self.round_state.lock().global.lock().latest_vote.clone()
     }
 
     #[instrument(level = "trace", skip(self))]
@@ -356,7 +385,7 @@ impl<E: Environment> Round<E> {
         let is_proposer = self.round_state.lock().is_proposer();
 
         if is_proposer {
-            info!("I am the proposer of round {}", round);
+            info!(id = self.local_id, "I am the proposer of round {}", round);
             // If we are the proposer, propose a block.
             let propose = self.new_propose().await;
             let msg = Message::Propose(propose);
@@ -384,7 +413,7 @@ impl<E: Environment> Round<E> {
         });
 
         let ret = if let Ok(proposal) = fu.await {
-            info!("Got a proposal {:?}", proposal);
+            info!(id = self.local_id, "Got a proposal {:?}", proposal);
             let is_next_proposer = self.round_state.lock().is_next_proposer();
             // Update current state if we are the next leader.
             if is_next_proposer {
@@ -392,6 +421,8 @@ impl<E: Environment> Round<E> {
             } else {
                 global.lock().current_state = CurrentState::Voter;
             }
+
+            // TODO: save the qc
 
             // If we have a proposal, send a vote.
             let vote = self.try_generate_vote(proposal.clone()).await;
@@ -405,12 +436,20 @@ impl<E: Environment> Round<E> {
             self.process_proposal(proposal).await
         } else {
             warn!(target: "afj", "No proposal");
+            let is_next_proposer = self.round_state.lock().is_next_proposer();
+            if is_next_proposer {
+                global.lock().current_state = CurrentState::Leader;
+            } else {
+                global.lock().current_state = CurrentState::Voter;
+            }
+
+            global.lock().round = self.next_leader_round(round);
             return Err(());
         };
 
         // 2. If we are next proposer, wait for enough votes
         let next_proposer = self.round_state.lock().is_next_proposer();
-        trace!("next_proposer: {}", next_proposer);
+        trace!(id = self.local_id, "next_proposer: {}", next_proposer);
         if next_proposer {
             // Wait for enough votes.
             let timeout = tokio::time::sleep(Duration::from_millis(1000));
@@ -427,7 +466,7 @@ impl<E: Environment> Round<E> {
             });
 
             if let Ok(qc) = fu.await {
-                info!("Got a QC {:?}", qc);
+                info!(id = self.local_id, "Got a QC {:?}", qc);
                 // Now update qc in global state.
                 global.lock().current_state = CurrentState::LeaderWithQC(qc.to_owned());
                 let hash = self
@@ -439,12 +478,13 @@ impl<E: Environment> Round<E> {
                     .target_hash;
                 self.env.gathered_a_qc(round, hash, qc);
             } else {
-                warn!(target: "afj", "No QC");
+                warn!(target: "afj",id = self.local_id,  "No QC");
+                global.lock().round += 1;
                 return Err(());
             }
         }
 
-        // Add round.
+        // round add 1
         global.lock().round += 1;
         Ok(ret)
     }
@@ -459,6 +499,7 @@ pub struct GlobalState<E: Environment> {
     generic_qc: QC<E::Number, E::Hash, E::Signature, E::Id>,
     locked_qc: QC<E::Number, E::Hash, E::Signature, E::Id>,
     finalized_height: E::Number,
+    latest_vote: Option<Vote<E::Number, E::Hash>>,
 }
 
 impl<E: Environment> GlobalState<E> {
@@ -483,6 +524,7 @@ impl<E: Environment> GlobalState<E> {
             generic_qc,
             // Genesis.
             finalized_height: num::zero(),
+            latest_vote: None,
         }
     }
 
@@ -745,7 +787,7 @@ mod test {
 
         // init chain
         let last_finalized = env.with_chain(|chain| {
-            chain.generate_init_blocks(20);
+            chain.generate_init_blocks(40);
             log::trace!(
                 "chain: {:?}, last_finalized: {:?}, next_to_be_finalized: {:?}",
                 chain,
@@ -776,11 +818,12 @@ mod test {
         // wait for the best block to finalized.
         finalized
             .take_while(|&(_, n)| {
-                log::info!("n: {}", n);
-                futures::future::ready(n < 5)
+                assert!((n - 1) % 3 == 0);
+                println!("n: {n}");
+                futures::future::ready(n < 20)
             })
             .for_each(|v| {
-                log::info!("v: {:?}", v);
+                println!("v: {v:?}");
                 futures::future::ready(())
             })
             .await
@@ -788,7 +831,7 @@ mod test {
 
     #[tokio::test]
     async fn consensus_test() {
-        init();
+        // init();
         let voters_num = 4;
 
         let voter_set = Arc::new(Mutex::new(
@@ -807,7 +850,7 @@ mod test {
 
                 // init chain
                 let last_finalized = env.with_chain(|chain| {
-                    chain.generate_init_blocks(20);
+                    chain.generate_init_blocks(40);
                     log::trace!(
                         "chain: {:?}, last_finalized: {:?}, next_to_be_finalized: {:?}",
                         chain,
@@ -837,11 +880,12 @@ mod test {
                 // wait for the best block to finalized.
                 finalized
                     .take_while(|&(_, n)| {
-                        log::info!("n: {}", n);
-                        futures::future::ready(n < 5)
+                        assert!((n - 1) % 3 == 0);
+                        println!("n: {n}");
+                        futures::future::ready(n < 20)
                     })
                     .for_each(|v| {
-                        log::info!("v: {:?}", v);
+                        println!("v: {v:?}");
                         futures::future::ready(())
                     })
             })
@@ -854,7 +898,8 @@ mod test {
 
     #[tokio::test]
     async fn consensus_with_failed_node() {
-        init();
+        // init();
+        // 
         let voters_num = 4;
         let online_voters_num = 3;
 
@@ -880,7 +925,7 @@ mod test {
 
                 // init chain
                 let last_finalized = env.with_chain(|chain| {
-                    chain.generate_init_blocks(20);
+                    chain.generate_init_blocks(40);
                     log::trace!(
                         "chain: {:?}, last_finalized: {:?}, next_to_be_finalized: {:?}",
                         chain,
@@ -910,11 +955,12 @@ mod test {
                 // wait for the best block to finalized.
                 finalized
                     .take_while(|&(_, n)| {
-                        log::info!("n: {}", n);
-                        futures::future::ready(n < 5)
+                        assert!((n - 1) % 3 == 0);
+                        println!("n: {n}");
+                        futures::future::ready(n < 20)
                     })
                     .for_each(|v| {
-                        log::info!("v: {:?}", v);
+                        println!("v: {v:?}");
                         futures::future::ready(())
                     })
             })

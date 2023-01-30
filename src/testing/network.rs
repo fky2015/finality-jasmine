@@ -321,11 +321,11 @@ impl Network {
         impl Stream<Item = Result<SignedMessage<BlockNumber, Hash, Signature, Id>, Error>>,
         impl Sink<Message<BlockNumber, Hash, Signature, Id>, Error = Error>,
     ) {
-        tracing::trace!(
-            "make_round_comms, view_number: {}, node_id: {}",
-            view_number,
-            node_id
-        );
+        // tracing::trace!(
+        //     "make_round_comms, view_number: {}, node_id: {}",
+        //     view_number,
+        //     node_id
+        // );
         let mut rounds = self.rounds.lock();
         let round_comm = rounds
             .entry(view_number)
@@ -337,14 +337,14 @@ impl Network {
             });
 
         for (key, value) in rounds.iter() {
-            tracing::trace!(
-                "  round_comms: {}, senders.len:{:?}",
-                key,
-                value.senders.len()
-            );
+            // tracing::trace!(
+            //     "  round_comms: {}, senders.len:{:?}",
+            //     key,
+            //     value.senders.len()
+            // );
         }
 
-        tracing::trace!("make_round_comms end");
+        // tracing::trace!("make_round_comms end");
 
         // Notify the network routing task.
         if let Some(waker) = self.notify.as_ref().lock().as_ref() {
@@ -362,7 +362,6 @@ impl Network {
         impl Stream<Item = Result<GlobalMessageIn<Hash, BlockNumber, Signature, Id>, Error>>,
         impl Sink<GlobalMessageOut<Hash, BlockNumber, Signature, Id>, Error = Error>,
     ) {
-        tracing::trace!("make_global_comms");
         let mut global = self.global.lock();
         let f: fn(GlobalMessageOut<_, _, _, _>) -> GlobalMessageIn<_, _, _, _> = |msg| match msg {
             GlobalMessageOut::Commit(view, commit) => {
