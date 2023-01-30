@@ -75,7 +75,7 @@ impl std::fmt::Display for Error {
 #[cfg(feature = "std")]
 impl std::error::Error for Error {}
 
-mod messages;
+pub mod messages;
 
 #[cfg(feature = "std")]
 pub mod environment;
