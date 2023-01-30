@@ -18,9 +18,8 @@ use crate::{
 
 use self::report::VoterStateT;
 
-#[derive(Default, PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum CurrentState<N, D, Sig, Id> {
-    #[default]
     Voter,
     Leader,
     LeaderWithQC(QC<N, D, Sig, Id>),
@@ -513,7 +512,7 @@ impl<E: Environment> GlobalState<E> {
         let current_state = if voters.get_proposer(num::zero()) == local_id {
             CurrentState::LeaderWithQC(generic_qc.clone())
         } else {
-            CurrentState::default()
+            CurrentState::new()
         };
         GlobalState {
             local_id,
