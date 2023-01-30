@@ -58,7 +58,7 @@ where
 {
 }
 
-use crate::std::{vec::Vec};
+use crate::std::vec::Vec;
 
 /// Error for Jasmine
 #[derive(Clone, PartialEq)]

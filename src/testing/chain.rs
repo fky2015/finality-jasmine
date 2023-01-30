@@ -88,7 +88,6 @@ impl DummyChain {
             ..Default::default()
         };
 
-
         inner.insert(
             GENESIS_HASH.to_string(),
             Block {

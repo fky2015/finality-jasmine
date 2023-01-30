@@ -648,7 +648,9 @@ where
     E: Environment + Sync + Send + 'a,
 {
     /// Returns an object allowing to query the voter state.
-    pub fn voter_state(&self) -> Box<dyn VoterStateT<E::Number, E::Hash, E::Signature, E::Id> + Send + Sync + 'a>
+    pub fn voter_state(
+        &self,
+    ) -> Box<dyn VoterStateT<E::Number, E::Hash, E::Signature, E::Id> + Send + Sync + 'a>
     where
         <E as Environment>::Signature: Send,
         <E as Environment>::Id: std::hash::Hash + Send,
