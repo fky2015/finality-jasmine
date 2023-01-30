@@ -33,30 +33,31 @@ impl<N, D, Sig, Id> CurrentState<N, D, Sig, Id> {
 }
 
 pub mod report {
+    use super::CurrentState;
 
     /// Trait for querying the state of the voter. Used by `Voter` to return a queryable object
     /// without exposing too many data types.
-    pub trait VoterStateT<Hash, Id: Eq + std::hash::Hash> {
+    pub trait VoterStateT<N, D, Sig, Id: Eq + std::hash::Hash> {
         /// Returns a plain data type, `report::VoterState`, describing the current state
         /// of the voter relevant to the voting process.
-        fn get(&self) -> VoterState<Hash, Id>;
+        fn get(&self) -> VoterState<N, D, Sig, Id>;
     }
 
     #[derive(Clone, Debug, PartialEq, Eq)]
-    pub struct RoundState<Hash, Id: Eq + std::hash::Hash> {
-        // pub state: CurrentState<>,
+    pub struct RoundState<N, D, Sig, Id: Eq + std::hash::Hash> {
+        pub state: CurrentState<N, D, Sig, Id>,
         pub total_voters: usize,
         pub threshold: usize,
-        pub proposal_hash: Option<Hash>,
+        pub proposal_hash: Option<D>,
         pub phantom: core::marker::PhantomData<Id>,
     }
 
     #[derive(Clone, Debug)]
-    pub struct VoterState<Hash, Id: Eq + std::hash::Hash> {
+    pub struct VoterState<N, D, Sig, Id: Eq + std::hash::Hash> {
         // Voting rounds running in the background.
         // pub background_views: HashMap<u64, ViewState<Hash, Id>>,
         /// The current best voting view.
-        pub best_round: (u64, RoundState<Hash, Id>),
+        pub best_round: (u64, RoundState<N, D, Sig, Id>),
     }
 }
 
@@ -647,7 +648,7 @@ where
     E: Environment + Sync + Send + 'a,
 {
     /// Returns an object allowing to query the voter state.
-    pub fn voter_state(&self) -> Box<dyn VoterStateT<E::Hash, E::Id> + Send + Sync + 'a>
+    pub fn voter_state(&self) -> Box<dyn VoterStateT<E::Number, E::Hash, E::Signature, E::Id> + Send + Sync + 'a>
     where
         <E as Environment>::Signature: Send,
         <E as Environment>::Id: std::hash::Hash + Send,
@@ -695,18 +696,18 @@ struct SharedVoterState<E>(Arc<Mutex<InnerVoterState<E>>>)
 where
     E: Environment;
 
-impl<E: Environment> VoterStateT<E::Hash, E::Id> for SharedVoterState<E> {
-    fn get(&self) -> report::VoterState<E::Hash, E::Id> {
+impl<E: Environment> VoterStateT<E::Number, E::Hash, E::Signature, E::Id> for SharedVoterState<E> {
+    fn get(&self) -> report::VoterState<E::Number, E::Hash, E::Signature, E::Id> {
         let round = self.0.lock();
         let round_state = round.best.lock();
         let round = round_state.global.lock().round;
-        let _current_state = round_state.global.lock().current_state.clone();
+        let current_state = round_state.global.lock().current_state.clone();
         let voters = round_state.global.lock().voters.clone();
         report::VoterState {
             best_round: (
                 round,
                 report::RoundState {
-                    // state: current_state,
+                    state: current_state,
                     total_voters: voters.len().get(),
                     threshold: voters.threshold,
                     proposal_hash: round_state.proposal.as_ref().map(|p| p.target_hash.clone()),
@@ -899,7 +900,7 @@ mod test {
     #[tokio::test]
     async fn consensus_with_failed_node() {
         // init();
-        // 
+        //
         let voters_num = 4;
         let online_voters_num = 3;
 
