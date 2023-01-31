@@ -68,10 +68,7 @@ pub struct Voter<E: Environment> {
     best: Arc<Mutex<InnerVoterState<E>>>,
 }
 
-impl<E: Environment> Voter<E>
-where
-    E::Id: Value,
-{
+impl<E: Environment> Voter<E> {
     pub fn new(
         env: Arc<E>,
         global_in: E::GlobalIn,
@@ -98,7 +95,7 @@ where
     pub async fn start(&mut self) {
         loop {
             let round = self.global.lock().round;
-            info!(id = self.id, "start voter in round {round}.");
+            info!("start voter in round {round}.");
 
             let voting_round = Round::new(self.env.clone(), round, self.global.clone());
 
@@ -126,7 +123,7 @@ where
                             }
                         }
                         Err(e) => {
-                        warn!(id = self.id, "error: {:?}", e)
+                        warn!( "error: {:?}", e)
                         }
                     }
                 },
@@ -145,10 +142,7 @@ pub struct Round<E: Environment> {
     round_state: Arc<Mutex<RoundState<E>>>,
 }
 
-impl<E: Environment> Round<E>
-where
-    E::Id: Value,
-{
+impl<E: Environment> Round<E> {
     fn new(env: Arc<E>, round: u64, global: Arc<Mutex<GlobalState<E>>>) -> Self {
         let RoundData {
             local_id,
@@ -384,7 +378,7 @@ where
         let is_proposer = self.round_state.lock().is_proposer();
 
         if is_proposer {
-            info!(id = self.local_id, "I am the proposer of round {}", round);
+            info!("I am the proposer of round {}", round);
             // If we are the proposer, propose a block.
             let propose = self.new_propose().await;
             let msg = Message::Propose(propose);
@@ -412,7 +406,7 @@ where
         });
 
         let ret = if let Ok(proposal) = fu.await {
-            info!(id = self.local_id, "Got a proposal {:?}", proposal);
+            info!("Got a proposal {:?}", proposal);
             let is_next_proposer = self.round_state.lock().is_next_proposer();
             // Update current state if we are the next leader.
             if is_next_proposer {
@@ -448,7 +442,7 @@ where
 
         // 2. If we are next proposer, wait for enough votes
         let next_proposer = self.round_state.lock().is_next_proposer();
-        trace!(id = self.local_id, "next_proposer: {}", next_proposer);
+        trace!("next_proposer: {}", next_proposer);
         if next_proposer {
             // Wait for enough votes.
             let timeout = tokio::time::sleep(Duration::from_millis(1000));
@@ -465,7 +459,7 @@ where
             });
 
             if let Ok(qc) = fu.await {
-                info!(id = self.local_id, "Got a QC {:?}", qc);
+                info!("Got a QC {:?}", qc);
                 // Now update qc in global state.
                 global.lock().current_state = CurrentState::LeaderWithQC(qc.to_owned());
                 let hash = self
@@ -477,7 +471,7 @@ where
                     .target_hash;
                 self.env.gathered_a_qc(round, hash, qc);
             } else {
-                warn!(target: "afj",id = self.local_id,  "No QC");
+                warn!(target: "afj", "No QC");
                 global.lock().round += 1;
                 return Err(());
             }
