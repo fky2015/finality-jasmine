@@ -598,6 +598,9 @@ impl<E: Environment> RoundState<E> {
                 }
                 self.votes.push((vote, id, signature));
             }
+            Message::QC(qc) => {
+                unreachable!()
+            }
         }
         if let Some(waker) = self.waker.take() {
             waker.wake();
@@ -622,6 +625,7 @@ impl<E: Environment> RoundState<E> {
                     .collect();
 
                 Some(QC {
+                    round: self.votes.get(0).expect("at least one vote").0.round,
                     height,
                     hash,
                     signatures: sigs,

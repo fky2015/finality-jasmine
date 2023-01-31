@@ -12,6 +12,7 @@ use crate::std::vec::Vec;
 pub struct QC<N, D, Sig, Id> {
     pub height: N,
     pub hash: D,
+    pub round: u64,
     pub signatures: Vec<(Sig, Id)>,
 }
 
@@ -20,6 +21,7 @@ impl<N, D, Sig, Id> QC<N, D, Sig, Id> {
         QC {
             height: target.0,
             hash: target.1,
+            round: 0,
             signatures: Vec::new(),
         }
     }
@@ -68,6 +70,7 @@ pub struct Vote<N, D> {
 pub enum Message<N, D, Sig, Id> {
     Propose(Propose<N, D, Sig, Id>),
     Vote(Vote<N, D>),
+    QC(QC<N, D, Sig, Id>),
 }
 
 impl<N: Clone, H: Clone, Sig: Clone, Id: Clone> Message<N, H, Sig, Id> {
@@ -75,6 +78,8 @@ impl<N: Clone, H: Clone, Sig: Clone, Id: Clone> Message<N, H, Sig, Id> {
         match self {
             Message::Propose(p) => p.round,
             Message::Vote(p) => p.round,
+
+            Message::QC(qc) => qc.round,
         }
     }
 
@@ -82,6 +87,7 @@ impl<N: Clone, H: Clone, Sig: Clone, Id: Clone> Message<N, H, Sig, Id> {
         match self {
             Message::Propose(p) => (p.target_hash.clone(), p.target_height.clone()),
             Message::Vote(p) => (p.target_hash.clone(), p.target_height.clone()),
+            Message::QC(qc) => (qc.hash.clone(), qc.height.clone()),
         }
     }
 }
@@ -140,6 +146,29 @@ impl<N, D> Commit<N, D> {
             seq,
             target_number,
             target_hash,
+        }
+    }
+}
+
+/// A signed commit message.
+#[derive(Clone, PartialEq, Eq)]
+#[cfg_attr(any(feature = "std", test), derive(Debug))]
+#[cfg_attr(feature = "derive-codec", derive(Encode, Decode, TypeInfo))]
+pub struct SignedCommit<N, D, S, Id> {
+    /// The commit message which has been signed.
+    pub qc: QC<N, D, S, Id>,
+    /// The signature on the message.
+    pub signature: S,
+    /// The Id of the signer.
+    pub id: Id,
+}
+
+impl<N, D, S, Id> From<SignedCommit<N, D, S, Id>> for SignedMessage<N, D, S, Id> {
+    fn from(commit: SignedCommit<N, D, S, Id>) -> Self {
+        SignedMessage {
+            id: commit.id,
+            signature: commit.signature,
+            message: Message::QC(commit.qc),
         }
     }
 }
