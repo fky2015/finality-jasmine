@@ -242,7 +242,7 @@ impl<E: Environment> Round<E> {
         })
     }
 
-    async fn process_proposal(
+    fn process_proposal(
         &mut self,
         propose: Propose<E::Number, E::Hash, E::Signature, E::Id>,
     ) -> Option<FinalizedCommit<E::Number, E::Hash, E::Signature, E::Id>> {
@@ -320,7 +320,7 @@ impl<E: Environment> Round<E> {
         round
     }
 
-    async fn new_vote(
+    fn new_vote(
         &self,
         propose: Propose<E::Number, E::Hash, E::Signature, E::Id>,
     ) -> Vote<E::Number, E::Hash> {
@@ -340,7 +340,7 @@ impl<E: Environment> Round<E> {
     }
 
     #[instrument(level = "trace", skip(self))]
-    async fn try_generate_vote(
+    fn try_generate_vote(
         &self,
         propose: Propose<E::Number, E::Hash, E::Signature, E::Id>,
     ) -> Option<Vote<E::Number, E::Hash>> {
@@ -363,7 +363,7 @@ impl<E: Environment> Round<E> {
             return None;
         }
 
-        let vote = self.new_vote(propose).await;
+        let vote = self.new_vote(propose);
 
         Some(vote)
     }
@@ -439,7 +439,7 @@ impl<E: Environment> Round<E> {
             // TODO: save the qc
 
             // If we have a proposal, send a vote.
-            let vote = self.try_generate_vote(proposal.clone()).await;
+            let vote = self.try_generate_vote(proposal.clone());
 
             trace!("generate a vote {:?}", vote);
             if let Some(vote) = vote {
@@ -447,7 +447,7 @@ impl<E: Environment> Round<E> {
                 self.outgoing.send(msg).await.unwrap();
             }
 
-            self.process_proposal(proposal).await
+            self.process_proposal(proposal)
         } else {
             warn!(target: "afj", "No proposal");
             let is_next_proposer = self.round_state.lock().is_next_proposer();
