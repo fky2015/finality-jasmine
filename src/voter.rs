@@ -113,13 +113,13 @@ impl<E: Environment> Voter<E> {
                     match res {
                         Ok(f_commit) => {
                             // Send commit to global_out;
-                         if let Some(f_commit) = f_commit {
-                            self.env.finalize_block(
-                                round,
-                                f_commit.target_hash.clone(),
-                                f_commit.target_number.to_owned(),
-                                f_commit,
-                            ).unwrap();
+                            if let Some(f_commit) = f_commit {
+                                self.env.finalize_block(
+                                    round,
+                                    f_commit.target_hash.clone(),
+                                    f_commit.target_number.to_owned(),
+                                    f_commit,
+                                ).unwrap();
                             }
                         }
                         Err(e) => {
@@ -380,7 +380,28 @@ impl<E: Environment> Round<E> {
         if is_proposer {
             info!("I am the proposer of round {}", round);
             // If we are the proposer, propose a block.
-            let propose = self.new_propose().await;
+            // INFO: [future created by async block is not `Send`] when wrap
+            // self.env.propose().await in a separated async func.
+
+            // let propose = self.new_propose().await;
+            let global = self.round_state.lock().global.clone();
+            let round = global.lock().round;
+
+            // get the hash of generic_qc
+            let hash = global.lock().generic_qc.hash.clone();
+
+            let (number, hash, (qc_height, qc_hash)) = self
+                .env
+                .propose(round, hash)
+                .await
+                .expect("must success")
+                .expect("must have target.");
+            let propose = Propose {
+                round,
+                target_hash: hash,
+                target_height: number,
+                qc: QC::from_target((qc_height, qc_hash)),
+            };
             let msg = Message::Propose(propose);
 
             // A leader can only enter his round after collecting enough votes to form a QC.

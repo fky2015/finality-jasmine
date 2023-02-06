@@ -19,9 +19,9 @@ pub trait Environment {
     /// [`Self::round_commit_timer`].
     type Timer: Future<Output = Result<(), Self::Error>> + Unpin;
     /// The associated Id for the Environment.
-    type Id: Clone + Eq + std::hash::Hash + Ord + std::fmt::Debug;
+    type Id: Clone + Eq + std::hash::Hash + Ord + std::fmt::Debug + Send;
     /// The associated Signature type for the Environment.
-    type Signature: Eq + Clone + core::fmt::Debug;
+    type Signature: Eq + Clone + core::fmt::Debug + Send;
     /// Associated future type for the environment used when asynchronously computing the
     /// best chain to vote on. See also [`Self::best_chain_containing`].
     ///
@@ -32,7 +32,6 @@ pub trait Environment {
                 Self::Error,
             >,
         > + Send
-        + Sync
         + Unpin;
     /// The input stream used to communicate with the outside world.
     type In: Stream<

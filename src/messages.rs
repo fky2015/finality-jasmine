@@ -64,8 +64,8 @@ pub struct Vote<N, D> {
     pub target_hash: D,
 }
 
-#[derive(Clone)]
-#[cfg_attr(any(feature = "std", test), derive(Debug))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+// #[cfg_attr(any(feature = "std", test), derive(Debug))]
 #[cfg_attr(feature = "derive-codec", derive(Encode, Decode, TypeInfo))]
 pub enum Message<N, D, Sig, Id> {
     Propose(Propose<N, D, Sig, Id>),

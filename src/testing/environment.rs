@@ -64,7 +64,6 @@ impl Environment for DummyEnvironment {
                     Error,
                 >,
             > + Unpin
-            + Sync
             + Send,
     >;
     type In = Box<
