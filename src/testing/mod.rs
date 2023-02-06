@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 pub(crate) type Id = u64;
 pub(crate) type Signature = u64;
 pub(crate) type Hash = String;

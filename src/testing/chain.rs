@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::std::collections::BTreeMap;
 
 use tracing::{info, trace, warn};

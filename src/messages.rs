@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 #[cfg(feature = "derive-codec")]
 use parity_scale_codec::{Decode, Encode};
 #[cfg(feature = "derive-codec")]

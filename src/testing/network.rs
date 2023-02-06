@@ -1,3 +1,5 @@
+#![allow(unused_must_use)]
+#![allow(dead_code)]
 use crate::{
     messages::{Callback, GlobalMessageIn, GlobalMessageOut, Message, SignedMessage},
     Error,

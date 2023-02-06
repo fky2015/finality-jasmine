@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use core::pin::Pin;
 
 use futures::channel::mpsc::{self, UnboundedSender};
@@ -172,5 +173,12 @@ impl Environment for DummyEnvironment {
         block: Self::Hash,
     ) -> Option<(Self::Number, Self::Hash, (Self::Number, Self::Hash))> {
         self.with_chain(|chain| chain.get_block(&block))
+    }
+
+    fn update_state(
+        &self,
+        round: u64,
+        state: crate::voter::CurrentState<Self::Number, Self::Hash, Self::Signature, Self::Id>,
+    ) {
     }
 }

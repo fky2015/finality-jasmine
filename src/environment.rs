@@ -2,6 +2,7 @@ use futures::{Future, Sink, Stream};
 
 use crate::{
     messages::{FinalizedCommit, GlobalMessageIn, GlobalMessageOut, Message, SignedMessage},
+    voter::CurrentState,
     BlockNumberOps, Error,
 };
 
@@ -73,7 +74,6 @@ pub trait Environment {
     fn propose(&self, round: u64, block: Self::Hash) -> Self::BestChain;
 
     /// Get the qc for a block.
-    /// TODO: Call this in voter.rs
     fn gathered_a_qc(
         &self,
         round: u64,
@@ -81,7 +81,13 @@ pub trait Environment {
         qc: crate::messages::QC<Self::Number, Self::Hash, Self::Signature, Self::Id>,
     );
 
-    // TODO: refactor interface
+    /// Update the state of the voter.
+    fn update_state(
+        &self,
+        round: u64,
+        state: CurrentState<Self::Number, Self::Hash, Self::Signature, Self::Id>,
+    );
+
     fn get_block(
         &self,
         block: Self::Hash,

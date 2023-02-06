@@ -8,7 +8,7 @@ use tracing_attributes::instrument;
 
 use futures::{FutureExt, SinkExt, StreamExt};
 use parking_lot::Mutex;
-use tracing::{info, trace, warn, Value};
+use tracing::{info, trace, warn};
 
 use crate::{
     environment::{Environment, RoundData, VoterData},
@@ -82,6 +82,10 @@ impl<E: Environment> Voter<E> {
             voters,
             QC::from_target(finalized_target),
         )));
+
+        let round = global.lock().round;
+        let state = global.lock().current_state.clone();
+        env.update_state(round, state);
         Voter {
             id: local_id.clone(),
             env,
@@ -160,26 +164,26 @@ impl<E: Environment> Round<E> {
         }
     }
 
-    async fn new_propose(&self) -> Propose<E::Number, E::Hash, E::Signature, E::Id> {
-        let global = self.round_state.lock().global.clone();
-        let round = global.lock().round;
-
-        // get the hash of generic_qc
-        let hash = global.lock().generic_qc.hash.clone();
-
-        let (number, hash, (qc_height, qc_hash)) = self
-            .env
-            .propose(round, hash)
-            .await
-            .expect("must success")
-            .expect("must have target.");
-        Propose {
-            round,
-            target_hash: hash,
-            target_height: number,
-            qc: QC::from_target((qc_height, qc_hash)),
-        }
-    }
+    // async fn new_propose(&self) -> Propose<E::Number, E::Hash, E::Signature, E::Id> {
+    //     let global = self.round_state.lock().global.clone();
+    //     let round = global.lock().round;
+    //
+    //     // get the hash of generic_qc
+    //     let hash = global.lock().generic_qc.hash.clone();
+    //
+    //     let (number, hash, (qc_height, qc_hash)) = self
+    //         .env
+    //         .propose(round, hash)
+    //         .await
+    //         .expect("must success")
+    //         .expect("must have target.");
+    //     Propose {
+    //         round,
+    //         target_hash: hash,
+    //         target_height: number,
+    //         qc: QC::from_target((qc_height, qc_hash)),
+    //     }
+    // }
 
     #[instrument(level = "trace", skip(self))]
     fn is_extend_relationship(
@@ -210,22 +214,22 @@ impl<E: Environment> Round<E> {
         parent.1 == ancestor.clone()
     }
 
-    fn get_parent_block(
-        &self,
-        hash: &E::Hash,
-    ) -> Option<Propose<E::Number, E::Hash, E::Signature, E::Id>> {
-        let parent = self.env.parent_key_block(hash.clone()).unwrap();
-        let parent_hash = parent.1;
-        let parent_number = parent.0;
-        let qc = QC::from_target(parent.2);
-        Some(Propose {
-            // mock round
-            round: 0,
-            target_hash: parent_hash,
-            target_height: parent_number,
-            qc,
-        })
-    }
+    // fn get_parent_block(
+    //     &self,
+    //     hash: &E::Hash,
+    // ) -> Option<Propose<E::Number, E::Hash, E::Signature, E::Id>> {
+    //     let parent = self.env.parent_key_block(hash.clone()).unwrap();
+    //     let parent_hash = parent.1;
+    //     let parent_number = parent.0;
+    //     let qc = QC::from_target(parent.2);
+    //     Some(Propose {
+    //         // mock round
+    //         round: 0,
+    //         target_hash: parent_hash,
+    //         target_height: parent_number,
+    //         qc,
+    //     })
+    // }
 
     fn get_block(
         &self,
@@ -331,13 +335,13 @@ impl<E: Environment> Round<E> {
         }
     }
 
-    async fn save_latest_vote(&self, vote: Vote<E::Number, E::Hash>) {
-        self.round_state.lock().global.lock().latest_vote = Some(vote);
-    }
-
-    async fn get_latest_vote(&self) -> Option<Vote<E::Number, E::Hash>> {
-        self.round_state.lock().global.lock().latest_vote.clone()
-    }
+    // async fn save_latest_vote(&self, vote: Vote<E::Number, E::Hash>) {
+    //     self.round_state.lock().global.lock().latest_vote = Some(vote);
+    // }
+    //
+    // async fn get_latest_vote(&self) -> Option<Vote<E::Number, E::Hash>> {
+    //     self.round_state.lock().global.lock().latest_vote.clone()
+    // }
 
     #[instrument(level = "trace", skip(self))]
     fn try_generate_vote(
@@ -431,12 +435,14 @@ impl<E: Environment> Round<E> {
             let is_next_proposer = self.round_state.lock().is_next_proposer();
             // Update current state if we are the next leader.
             if is_next_proposer {
-                global.lock().current_state = CurrentState::Leader;
+                let state = CurrentState::Leader;
+                global.lock().current_state = state.to_owned();
+                self.env.update_state(round, state)
             } else {
-                global.lock().current_state = CurrentState::Voter;
+                let state = CurrentState::Voter;
+                global.lock().current_state = state.to_owned();
+                self.env.update_state(round, state)
             }
-
-            // TODO: save the qc
 
             // If we have a proposal, send a vote.
             let vote = self.try_generate_vote(proposal.clone());
@@ -452,9 +458,13 @@ impl<E: Environment> Round<E> {
             warn!(target: "afj", "No proposal");
             let is_next_proposer = self.round_state.lock().is_next_proposer();
             if is_next_proposer {
-                global.lock().current_state = CurrentState::Leader;
+                let state = CurrentState::Leader;
+                global.lock().current_state = state.to_owned();
+                self.env.update_state(round, state)
             } else {
-                global.lock().current_state = CurrentState::Voter;
+                let state = CurrentState::Voter;
+                global.lock().current_state = state.to_owned();
+                self.env.update_state(round, state)
             }
 
             global.lock().round = self.next_leader_round(round);
@@ -483,6 +493,8 @@ impl<E: Environment> Round<E> {
                 info!("Got a QC {:?}", qc);
                 // Now update qc in global state.
                 global.lock().current_state = CurrentState::LeaderWithQC(qc.to_owned());
+                self.env
+                    .update_state(round, CurrentState::LeaderWithQC(qc.to_owned()));
                 let hash = self
                     .round_state
                     .lock()
@@ -619,7 +631,7 @@ impl<E: Environment> RoundState<E> {
                 }
                 self.votes.push((vote, id, signature));
             }
-            Message::QC(qc) => {
+            Message::QC(_qc) => {
                 unreachable!()
             }
         }
@@ -738,6 +750,8 @@ impl<E: Environment> VoterStateT<E::Number, E::Hash, E::Signature, E::Id> for Sh
 
 #[cfg(test)]
 mod test {
+    #![allow(dead_code)]
+
     use futures::StreamExt;
     #[cfg(feature = "deadlock_detection")]
     use parking_lot::deadlock;
@@ -777,7 +791,7 @@ mod test {
                 .with_max_level(tracing::Level::TRACE)
                 .finish();
 
-            tracing::subscriber::set_global_default(subscriber)
+            let _ = tracing::subscriber::set_global_default(subscriber)
                 .map_err(|_err| eprintln!("Unable to set global default subscriber"));
 
             #[cfg(feature = "deadlock_detection")]
