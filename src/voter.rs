@@ -4,6 +4,7 @@ use core::{
 };
 
 use crate::{messages::QC, std::sync::Arc};
+use log::debug;
 use tracing_attributes::instrument;
 
 use futures::{FutureExt, SinkExt, StreamExt};
@@ -134,7 +135,7 @@ impl<E: Environment> Voter<E> {
             }
 
             // Sleep for a while
-            tokio::time::sleep(Duration::from_millis(1000)).await;
+            tokio::time::sleep(Duration::from_millis(200)).await;
         }
     }
 }
@@ -235,6 +236,7 @@ impl<E: Environment> Round<E> {
         &self,
         hash: &E::Hash,
     ) -> Option<Propose<E::Number, E::Hash, E::Signature, E::Id>> {
+        debug!(target: "afj", "get block: {:?}", hash);
         let block = self.env.get_block(hash.clone()).unwrap();
         let qc = QC::from_target(block.2);
 
@@ -400,6 +402,7 @@ impl<E: Environment> Round<E> {
                 .await
                 .expect("must success")
                 .expect("must have target.");
+
             let propose = Propose {
                 round,
                 target_hash: hash,
@@ -417,7 +420,7 @@ impl<E: Environment> Round<E> {
 
         // Wait for a propose.
 
-        let timeout = tokio::time::sleep(Duration::from_millis(1000));
+        let timeout = tokio::time::sleep(Duration::from_millis(200));
         tokio::pin!(timeout);
         let fu = futures::future::poll_fn(|cx| {
             let mut round_lock = self.round_state.lock();
@@ -476,7 +479,7 @@ impl<E: Environment> Round<E> {
         trace!("next_proposer: {}", next_proposer);
         if next_proposer {
             // Wait for enough votes.
-            let timeout = tokio::time::sleep(Duration::from_millis(1000));
+            let timeout = tokio::time::sleep(Duration::from_millis(200));
             tokio::pin!(timeout);
             let fu = futures::future::poll_fn(|cx| {
                 let mut round_lock = self.round_state.lock();
