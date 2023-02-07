@@ -98,9 +98,9 @@ impl<E: Environment> Voter<E> {
     }
 
     pub async fn start(&mut self) {
+        info!("id: {:?}, start voter.", self.id);
         loop {
             let round = self.global.lock().round;
-            info!("start voter in round {round}.");
 
             let voting_round = Round::new(self.env.clone(), round, self.global.clone());
 
@@ -236,7 +236,7 @@ impl<E: Environment> Round<E> {
         &self,
         hash: &E::Hash,
     ) -> Option<Propose<E::Number, E::Hash, E::Signature, E::Id>> {
-        debug!(target: "afj", "get block: {:?}", hash);
+        trace!(target: "afj", "get block: {:?}", hash);
         let block = self.env.get_block(hash.clone()).unwrap();
         let qc = QC::from_target(block.2);
 
@@ -384,7 +384,7 @@ impl<E: Environment> Round<E> {
         let is_proposer = self.round_state.lock().is_proposer();
 
         if is_proposer {
-            info!("I am the proposer of round {}", round);
+            // info!("I am the proposer of round {}", round);
             // If we are the proposer, propose a block.
             // INFO: [future created by async block is not `Send`] when wrap
             // self.env.propose().await in a separated async func.
@@ -420,7 +420,7 @@ impl<E: Environment> Round<E> {
 
         // Wait for a propose.
 
-        let timeout = tokio::time::sleep(Duration::from_millis(200));
+        let timeout = tokio::time::sleep(Duration::from_millis(1000));
         tokio::pin!(timeout);
         let fu = futures::future::poll_fn(|cx| {
             let mut round_lock = self.round_state.lock();
@@ -434,17 +434,13 @@ impl<E: Environment> Round<E> {
         });
 
         let ret = if let Ok(proposal) = fu.await {
-            info!("Got a proposal {:?}", proposal);
+            // info!("Got a proposal {:?}", proposal);
             let is_next_proposer = self.round_state.lock().is_next_proposer();
             // Update current state if we are the next leader.
             if is_next_proposer {
                 let state = CurrentState::Leader;
                 global.lock().current_state = state.to_owned();
-                self.env.update_state(round, state)
-            } else {
-                let state = CurrentState::Voter;
-                global.lock().current_state = state.to_owned();
-                self.env.update_state(round, state)
+                self.env.update_state(round + 1, state)
             }
 
             // If we have a proposal, send a vote.
@@ -458,9 +454,11 @@ impl<E: Environment> Round<E> {
 
             self.process_proposal(proposal)
         } else {
-            warn!(target: "afj", "No proposal");
-            let is_next_proposer = self.round_state.lock().is_next_proposer();
-            if is_next_proposer {
+            warn!(target: "afj", "id: {:?}, round: {}, No proposal", self.local_id, round);
+
+            global.lock().round = self.next_leader_round(round);
+            let round = global.lock().round;
+            if self.round_state.lock().is_proposer() {
                 let state = CurrentState::Leader;
                 global.lock().current_state = state.to_owned();
                 self.env.update_state(round, state)
@@ -469,8 +467,6 @@ impl<E: Environment> Round<E> {
                 global.lock().current_state = state.to_owned();
                 self.env.update_state(round, state)
             }
-
-            global.lock().round = self.next_leader_round(round);
             return Err(());
         };
 
@@ -479,7 +475,7 @@ impl<E: Environment> Round<E> {
         trace!("next_proposer: {}", next_proposer);
         if next_proposer {
             // Wait for enough votes.
-            let timeout = tokio::time::sleep(Duration::from_millis(200));
+            let timeout = tokio::time::sleep(Duration::from_millis(1000));
             tokio::pin!(timeout);
             let fu = futures::future::poll_fn(|cx| {
                 let mut round_lock = self.round_state.lock();
@@ -493,7 +489,7 @@ impl<E: Environment> Round<E> {
             });
 
             if let Ok(qc) = fu.await {
-                info!("Got a QC {:?}", qc);
+                // info!("Got a QC {:?}", qc);
                 // Now update qc in global state.
                 global.lock().current_state = CurrentState::LeaderWithQC(qc.to_owned());
                 self.env
@@ -515,6 +511,16 @@ impl<E: Environment> Round<E> {
 
         // round add 1
         global.lock().round += 1;
+        let round = global.lock().round;
+        if self.round_state.lock().is_proposer() {
+            let state = CurrentState::Leader;
+            global.lock().current_state = state.to_owned();
+            self.env.update_state(round, state)
+        } else {
+            let state = CurrentState::Voter;
+            global.lock().current_state = state.to_owned();
+            self.env.update_state(round, state)
+        }
         Ok(ret)
     }
 }
@@ -585,7 +591,16 @@ impl<E: Environment> RoundState<E> {
     }
 
     fn is_proposer(&self) -> bool {
-        self.proposer == self.global.lock().local_id
+        let round = self.global.lock().round;
+        let local_id = self.global.lock().local_id.clone();
+
+        let voters = self.global.lock().voters.clone();
+
+        if voters.get_proposer(round) == local_id {
+            return true;
+        } else {
+            false
+        }
     }
 
     fn is_next_proposer(&self) -> bool {
